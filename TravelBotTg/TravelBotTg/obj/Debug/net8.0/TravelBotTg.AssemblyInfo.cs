@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("TravelBotTg")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+4993580f6bfe702cef5eed66cb703cced1008bdc")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+1601aa5e75310e794fefd751125e3d01cb2d123b")]
 [assembly: System.Reflection.AssemblyProductAttribute("TravelBotTg")]
 [assembly: System.Reflection.AssemblyTitleAttribute("TravelBotTg")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

@@ -4,23 +4,73 @@ using Telegram.Bot;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
 
-const string botToken = "8934591179:AAHs8DDhzQ1-K_l56DCor0Gk6Bj96L3Z7qc";
-const long adminChatId = 655729519; // Вставь сюда свой Telegram ID
+const string botTokenEnvironmentName = "TELEGRAM_BOT_TOKEN";
+const string adminChatIdEnvironmentName = "TELEGRAM_ADMIN_CHAT_ID";
+
+string botToken = GetRequiredEnvironmentVariable(botTokenEnvironmentName);
+string adminChatIdText = GetRequiredEnvironmentVariable(adminChatIdEnvironmentName);
+
+if (!long.TryParse(adminChatIdText, out long adminChatId))
+{
+    throw new InvalidOperationException(
+        $"Переменная {adminChatIdEnvironmentName} должна содержать корректный Telegram ID."
+    );
+}
 
 var botClient = new TelegramBotClient(botToken);
 
-// Здесь временно хранятся анкеты пользователей.
-// Позже при необходимости подключим базу данных.
 var userSessions = new ConcurrentDictionary<long, TourRequestSession>();
+
+// Не даёт одновременно обрабатывать несколько сообщений одного пользователя.
+var chatLocks = new ConcurrentDictionary<long, SemaphoreSlim>();
+
+var shutdownCancellationTokenSource = new CancellationTokenSource();
+
+Console.CancelKeyPress += (_, eventArgs) =>
+{
+    eventArgs.Cancel = true;
+    shutdownCancellationTokenSource.Cancel();
+};
+
+AppDomain.CurrentDomain.ProcessExit += (_, _) =>
+{
+    if (!shutdownCancellationTokenSource.IsCancellationRequested)
+    {
+        shutdownCancellationTokenSource.Cancel();
+    }
+};
 
 botClient.OnMessage += HandleMessageAsync;
 
-var botInfo = await botClient.GetMe();
+try
+{
+    var botInfo = await botClient.GetMe();
 
-Console.WriteLine($"Бот @{botInfo.Username} запущен.");
-Console.WriteLine("Для остановки нажми Enter.");
+    Console.WriteLine($"Бот @{botInfo.Username} запущен.");
+    Console.WriteLine("Бот работает в постоянном режиме.");
 
-Console.ReadLine();
+    await Task.Delay(
+        Timeout.Infinite,
+        shutdownCancellationTokenSource.Token
+    );
+}
+catch (OperationCanceledException)
+    when (shutdownCancellationTokenSource.IsCancellationRequested)
+{
+    Console.WriteLine("Получена команда на остановку бота.");
+}
+catch (Exception exception)
+{
+    Console.Error.WriteLine($"Критическая ошибка при запуске бота: {exception}");
+    Environment.ExitCode = 1;
+}
+finally
+{
+    botClient.OnMessage -= HandleMessageAsync;
+    shutdownCancellationTokenSource.Dispose();
+
+    Console.WriteLine("Бот остановлен.");
+}
 
 async Task HandleMessageAsync(Message message, UpdateType updateType)
 {
@@ -28,10 +78,18 @@ async Task HandleMessageAsync(Message message, UpdateType updateType)
         return;
 
     long chatId = message.Chat.Id;
-    string text = message.Text.Trim();
+
+    SemaphoreSlim chatLock = chatLocks.GetOrAdd(
+        chatId,
+        _ => new SemaphoreSlim(1, 1)
+    );
+
+    await chatLock.WaitAsync();
 
     try
     {
+        string text = message.Text.Trim();
+
         if (text.Equals("/start", StringComparison.OrdinalIgnoreCase))
         {
             userSessions[chatId] = new TourRequestSession
@@ -57,17 +115,23 @@ async Task HandleMessageAsync(Message message, UpdateType updateType)
 
             await botClient.SendMessage(
                 chatId: chatId,
-                text: "Заполнение заявки отменено. Для новой заявки отправьте /start."
+                text:
+                    "Заполнение заявки отменено.\n" +
+                    "Для новой заявки отправьте команду /start."
             );
 
             return;
         }
 
-        if (!userSessions.TryGetValue(chatId, out TourRequestSession? session))
+        if (!userSessions.TryGetValue(
+                chatId,
+                out TourRequestSession? session))
         {
             await botClient.SendMessage(
                 chatId: chatId,
-                text: "Чтобы начать заполнение заявки, отправьте команду /start."
+                text:
+                    "Чтобы начать заполнение заявки, " +
+                    "отправьте команду /start."
             );
 
             return;
@@ -97,8 +161,10 @@ async Task HandleMessageAsync(Message message, UpdateType updateType)
                     chatId: chatId,
                     text:
                         "На какие даты нужен тур?\n\n" +
-                        "Можно указать конкретные даты или примерный период и продолжительность.\n" +
-                        "Например: с 15 по 25 августа или в начале сентября на 10 дней."
+                        "Можно указать конкретные даты или примерный период " +
+                        "и продолжительность.\n" +
+                        "Например: с 15 по 25 августа или " +
+                        "в начале сентября на 10 дней."
                 );
 
                 break;
@@ -124,7 +190,8 @@ async Task HandleMessageAsync(Message message, UpdateType updateType)
                     chatId: chatId,
                     text:
                         "Есть ли дополнительные пожелания по туру?\n\n" +
-                        "Например: первая линия, собственный пляж, питание всё включено.\n\n" +
+                        "Например: первая линия, собственный пляж, " +
+                        "питание всё включено.\n\n" +
                         "Если пожеланий нет, напишите: Нет."
                 );
 
@@ -133,7 +200,10 @@ async Task HandleMessageAsync(Message message, UpdateType updateType)
             case TourRequestStep.Wishes:
                 session.Wishes = text;
 
-                string adminMessage = BuildAdminMessage(message.From, session);
+                string adminMessage = BuildAdminMessage(
+                    message.From,
+                    session
+                );
 
                 await botClient.SendMessage(
                     chatId: adminChatId,
@@ -146,26 +216,55 @@ async Task HandleMessageAsync(Message message, UpdateType updateType)
                     text:
                         "Спасибо! ✅\n\n" +
                         "Ваша заявка передана специалисту.\n" +
-                        "Скоро с вами свяжутся и предложат подходящие варианты тура. Для оформления нового тура введите команду /start"
+                        "Скоро с вами свяжутся и предложат " +
+                        "подходящие варианты тура.\n\n" +
+                        "Для оформления новой заявки отправьте /start."
                 );
 
                 userSessions.TryRemove(chatId, out _);
+
+                break;
+
+            default:
+                userSessions.TryRemove(chatId, out _);
+
+                await botClient.SendMessage(
+                    chatId: chatId,
+                    text:
+                        "Состояние заявки было сброшено.\n" +
+                        "Отправьте /start, чтобы начать заново."
+                );
 
                 break;
         }
     }
     catch (Exception exception)
     {
-        Console.WriteLine(
-            $"Ошибка при обработке сообщения пользователя {chatId}: {exception}"
+        Console.Error.WriteLine(
+            $"Ошибка при обработке сообщения пользователя {chatId}: " +
+            exception
         );
 
-        await botClient.SendMessage(
-            chatId: chatId,
-            text:
-                "Произошла ошибка при обработке сообщения.\n" +
-                "Попробуйте отправить /start и заполнить заявку заново."
-        );
+        try
+        {
+            await botClient.SendMessage(
+                chatId: chatId,
+                text:
+                    "Произошла ошибка при обработке сообщения.\n" +
+                    "Попробуйте отправить /start и заполнить заявку заново."
+            );
+        }
+        catch (Exception sendException)
+        {
+            Console.Error.WriteLine(
+                $"Не удалось отправить сообщение об ошибке " +
+                $"пользователю {chatId}: {sendException}"
+            );
+        }
+    }
+    finally
+    {
+        chatLock.Release();
     }
 }
 
@@ -186,26 +285,43 @@ static string BuildAdminMessage(
     if (string.IsNullOrWhiteSpace(fullName))
         fullName = "не указано";
 
+    string telegramId = user?.Id.ToString() ?? "не указан";
+
     var messageBuilder = new StringBuilder();
 
     messageBuilder.AppendLine("<b>✈️ Новая заявка на подбор тура</b>");
     messageBuilder.AppendLine();
-    messageBuilder.AppendLine($"<b>Клиент:</b> {EscapeHtml(fullName)}");
-    messageBuilder.AppendLine($"<b>Username:</b> {username}");
-    messageBuilder.AppendLine($"<b>Telegram ID:</b> <code>{user?.Id}</code>");
+
+    messageBuilder.AppendLine(
+        $"<b>Клиент:</b> {EscapeHtml(fullName)}"
+    );
+
+    messageBuilder.AppendLine(
+        $"<b>Username:</b> {username}"
+    );
+
+    messageBuilder.AppendLine(
+        $"<b>Telegram ID:</b> <code>{telegramId}</code>"
+    );
+
     messageBuilder.AppendLine();
+
     messageBuilder.AppendLine(
         $"<b>Направление:</b> {EscapeHtml(session.Destination)}"
     );
+
     messageBuilder.AppendLine(
         $"<b>Туристы:</b> {EscapeHtml(session.Travelers)}"
     );
+
     messageBuilder.AppendLine(
         $"<b>Даты:</b> {EscapeHtml(session.Dates)}"
     );
+
     messageBuilder.AppendLine(
         $"<b>Бюджет:</b> {EscapeHtml(session.Budget)}"
     );
+
     messageBuilder.AppendLine(
         $"<b>Пожелания:</b> {EscapeHtml(session.Wishes)}"
     );
@@ -222,6 +338,20 @@ static string EscapeHtml(string? value)
         .Replace("&", "&amp;")
         .Replace("<", "&lt;")
         .Replace(">", "&gt;");
+}
+
+static string GetRequiredEnvironmentVariable(string variableName)
+{
+    string? value = Environment.GetEnvironmentVariable(variableName);
+
+    if (string.IsNullOrWhiteSpace(value))
+    {
+        throw new InvalidOperationException(
+            $"Не задана переменная окружения {variableName}."
+        );
+    }
+
+    return value.Trim();
 }
 
 enum TourRequestStep
