@@ -146,7 +146,7 @@ async Task HandleMessageAsync(Message message, UpdateType updateType)
                     text:
                         "Спасибо! ✅\n\n" +
                         "Ваша заявка передана специалисту.\n" +
-                        "Скоро с вами свяжутся и предложат подходящие варианты тура."
+                        "Скоро с вами свяжутся и предложат подходящие варианты тура. Для оформления нового тура введите команду /start"
                 );
 
                 userSessions.TryRemove(chatId, out _);
