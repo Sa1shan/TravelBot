@@ -28,12 +28,12 @@ jobs:
           dotnet-version: "8.0.x"
 
       - name: Восстановление зависимостей
-        run: dotnet restore ./TravelBotTg/TravelBotTg.csproj
+        run: dotnet restore ./TravelBotTg/TravelBotTg/TravelBotTg.csproj
 
       - name: Публикация проекта
         run: >
           dotnet publish
-          ./TravelBotTg/TravelBotTg.csproj
+          ./TravelBotTg/TravelBotTg/TravelBotTg.csproj
           --configuration Release
           --runtime linux-x64
           --self-contained false
@@ -94,7 +94,7 @@ jobs:
             "$SERVER_USER@$SERVER_HOST" \
             "systemctl start travelbot && systemctl is-active travelbot"
 
-      - name: Проверка последних логов
+      - name: Последние логи бота
         if: always()
         env:
           SERVER_HOST: ${{ secrets.SERVER_HOST }}
