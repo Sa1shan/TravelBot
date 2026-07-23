@@ -1,0 +1,9 @@
+C:\Users\griga\OneDrive\Documents\Github\TravelBot\TravelBotTg\publish\TravelBotTg
+C:\Users\griga\OneDrive\Documents\Github\TravelBot\TravelBotTg\publish\TravelBotTg.dll
+C:\Users\griga\OneDrive\Documents\Github\TravelBot\TravelBotTg\publish\TravelBotTg.deps.json
+C:\Users\griga\OneDrive\Documents\Github\TravelBot\TravelBotTg\publish\TravelBotTg.runtimeconfig.json
+C:\Users\griga\OneDrive\Documents\Github\TravelBot\TravelBotTg\publish\TravelBotTg.pdb
+C:\Users\griga\OneDrive\Documents\Github\TravelBot\TravelBotTg\publish\Microsoft.Extensions.DependencyInjection.Abstractions.dll
+C:\Users\griga\OneDrive\Documents\Github\TravelBot\TravelBotTg\publish\Microsoft.Extensions.Options.dll
+C:\Users\griga\OneDrive\Documents\Github\TravelBot\TravelBotTg\publish\Microsoft.Extensions.Primitives.dll
+C:\Users\griga\OneDrive\Documents\Github\TravelBot\TravelBotTg\publish\Telegram.Bot.dll

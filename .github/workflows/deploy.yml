@@ -1,0 +1,108 @@
+name: Deploy Travel Bot
+
+on:
+  push:
+    branches:
+      - main
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: travelbot-production
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Получение кода
+        uses: actions/checkout@v4
+
+      - name: Установка .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Восстановление зависимостей
+        run: dotnet restore ./TravelBotTg/TravelBotTg.csproj
+
+      - name: Публикация проекта
+        run: >
+          dotnet publish
+          ./TravelBotTg/TravelBotTg.csproj
+          --configuration Release
+          --runtime linux-x64
+          --self-contained false
+          --output ./publish
+          --no-restore
+
+      - name: Настройка SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SERVER_SSH_KEY }}
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_PORT: ${{ secrets.SERVER_PORT }}
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/travelbot_deploy
+          chmod 600 ~/.ssh/travelbot_deploy
+
+          ssh-keyscan -p "$SERVER_PORT" "$SERVER_HOST" >> ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Остановка бота
+        env:
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+          SERVER_PORT: ${{ secrets.SERVER_PORT }}
+        run: |
+          ssh \
+            -i ~/.ssh/travelbot_deploy \
+            -p "$SERVER_PORT" \
+            "$SERVER_USER@$SERVER_HOST" \
+            "systemctl stop travelbot || true"
+
+      - name: Загрузка новой версии
+        env:
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+          SERVER_PORT: ${{ secrets.SERVER_PORT }}
+        run: |
+          rsync \
+            --archive \
+            --verbose \
+            --compress \
+            --delete \
+            -e "ssh -i ~/.ssh/travelbot_deploy -p $SERVER_PORT" \
+            ./publish/ \
+            "$SERVER_USER@$SERVER_HOST:/opt/travelbot/"
+
+      - name: Запуск новой версии
+        env:
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+          SERVER_PORT: ${{ secrets.SERVER_PORT }}
+        run: |
+          ssh \
+            -i ~/.ssh/travelbot_deploy \
+            -p "$SERVER_PORT" \
+            "$SERVER_USER@$SERVER_HOST" \
+            "systemctl start travelbot && systemctl is-active travelbot"
+
+      - name: Проверка последних логов
+        if: always()
+        env:
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+          SERVER_PORT: ${{ secrets.SERVER_PORT }}
+        run: |
+          ssh \
+            -i ~/.ssh/travelbot_deploy \
+            -p "$SERVER_PORT" \
+            "$SERVER_USER@$SERVER_HOST" \
+            "journalctl -u travelbot -n 30 --no-pager" || true
